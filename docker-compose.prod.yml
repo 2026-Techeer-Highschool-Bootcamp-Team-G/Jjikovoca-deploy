@@ -1,0 +1,69 @@
+  <owner-lower> = 2026-techeer-highschool-bootcamp-team-g
+
+  services:
+    mysql:
+      image: mysql:8.0
+      environment:
+        MYSQL_DATABASE: jjikeoboka
+        MYSQL_USER: ${DB_USER}
+        MYSQL_PASSWORD: ${DB_PASSWORD}
+        MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+        TZ: UTC
+      command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+      volumes: ["mysql-data:/var/lib/mysql"]
+      healthcheck:
+        test: ["CMD","mysqladmin","ping","-h","localhost"]
+        interval: 10s
+        timeout: 5s
+        retries: 10
+      restart: unless-stopped
+
+    redis:
+      image: redis:7-alpine
+      command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+      healthcheck:
+        test: ["CMD","redis-cli","ping"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+      restart: unless-stopped
+
+    server:
+      image: ghcr.io/2026-techeer-highschool-bootcamp-team-g/jjikovoca-server:${IMAGE_TAG:-latest}
+      depends_on:
+        mysql: { condition: service_healthy }
+        redis: { condition: service_healthy }
+      environment:
+        SPRING_PROFILES_ACTIVE: prod
+        DB_HOST: mysql
+        DB_USER: ${DB_USER}
+        DB_PASSWORD: ${DB_PASSWORD}
+        REDIS_HOST: redis
+        REDIS_PORT: 6379
+        GEMINI_API_KEY: ${GEMINI_API_KEY}
+        JWT_SECRET: ${JWT_SECRET}
+        APP_IMAGE_STORAGE: local
+        APP_CORS_ALLOWED_ORIGINS: https://jjikovoca.site,https://www.jjikovoca.site
+      expose: ["8000"]
+      volumes: ["server-data:/app/data"]
+      healthcheck:
+        test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/8000' || exit 1"]
+        interval: 10s
+        timeout: 5s
+        retries: 12
+        start_period: 40s
+      restart: unless-stopped
+
+    nginx:
+      image: nginx:1.27-alpine
+      depends_on:
+        server: { condition: service_healthy }
+      ports: ["80:80","443:443"]
+      volumes:
+        - ./nginx.conf:/etc/nginx/nginx.conf:ro
+        - /etc/letsencrypt:/etc/letsencrypt:ro
+      restart: unless-stopped
+
+  volumes:
+    mysql-data:
+    server-data:

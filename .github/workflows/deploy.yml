@@ -1,0 +1,42 @@
+name: deploy
+on:
+  repository_dispatch:
+    types: [deploy]
+  workflow_dispatch:
+    inputs:
+      sha: { description: '배포할 이미지 sha(롤백 시 직전 sha)', required: true }
+concurrency: production-deploy
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: sha 결정·검증(인젝션 방지)
+        id: sha
+        env:
+          PAYLOAD_SHA: ${{ github.event.client_payload.sha }}
+          INPUT_SHA: ${{ github.event.inputs.sha }}
+        run: |
+          SHA="${PAYLOAD_SHA:-$INPUT_SHA}"
+          echo "$SHA" | grep -Eq '^[0-9a-f]{7,40}$' || { echo "invalid sha: $SHA"; exit 1; }
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: EC2 배포(SSH)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd /opt/jjikovoca
+            git pull --ff-only
+            export IMAGE_TAG=${{ steps.sha.outputs.sha }}
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
+            IMAGE_TAG=$IMAGE_TAG docker compose -f docker-compose.prod.yml pull server
+            IMAGE_TAG=$IMAGE_TAG docker compose -f docker-compose.prod.yml up -d
+            docker image prune -f
+      - name: 헬스체크
+        run: |
+          for i in $(seq 1 24); do
+            curl -fsS https://api.jjikovoca.site/api/health && echo OK && exit 0
+            sleep 5
+          done
+          echo "헬스체크 실패"; exit 1
