@@ -1,5 +1,3 @@
-  <owner-lower> = 2026-techeer-highschool-bootcamp-team-g
-
   services:
     mysql:
       image: mysql:8.0
