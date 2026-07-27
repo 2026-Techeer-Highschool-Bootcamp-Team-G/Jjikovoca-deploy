@@ -26,13 +26,15 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -e                                   # 중간 실패(git pull·docker pull 등) 시 즉시 중단·빨간불(초록불 위장 방지)
             cd /opt/jjikovoca
             git pull --ff-only
             export IMAGE_TAG=${{ steps.sha.outputs.sha }}
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ secrets.GHCR_USER }} --password-stdin
+            docker image prune -af                   # pull 전 옛 이미지 정리 → 디스크 공간 확보(no space 방지)
             IMAGE_TAG=$IMAGE_TAG docker compose -f docker-compose.prod.yml pull server
             IMAGE_TAG=$IMAGE_TAG docker compose -f docker-compose.prod.yml up -d
-            docker image prune -af
+            docker image prune -af                   # 교체 후 방금 밀려난 옛 서버 이미지 정리
       - name: 헬스체크
         run: |
           for i in $(seq 1 24); do
